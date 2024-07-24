@@ -149,8 +149,10 @@ def align_workers(value, op):
 
 class HpuModelAdapter():
 
-    def __init__(self, model):
+    def __init__(self, model, enforce_eager):
         self.model = model
+        if not htorch.utils.internal.is_lazy() and not enforce_eager:
+            self.model = torch.compile(self.model, backend='hpu_backend')
 
     def _set_attn_bias(self, attn_metadata, batch_size, seq_len, device,
                        dtype):
@@ -428,7 +430,7 @@ class HabanaModelRunnerBase(ModelRunnerBase[TModelInputForHPU]):
             # FIXME: Running with disable_tensor_cache=True causes
             # RuntimeErrors. This needs to be debugged
             with HabanaMemoryProfiler() as m_wrap:
-                self.model = _maybe_wrap_in_hpu_graph(self.model)
+                self.model = _maybe_wrap_in_hpu_graph(self.model, enforce_eager=self.enforce_eager)
             msg = f"Wrapping in HPU Graph took {m_wrap.get_summary_string()}"
             logger.info(msg)
 
@@ -1150,9 +1152,8 @@ class HabanaModelRunnerBase(ModelRunnerBase[TModelInputForHPU]):
         return self.model_config.get_vocab_size()
 
 
-def _maybe_wrap_in_hpu_graph(model):
-    return htorch.hpu.wrap_in_hpu_graph(HpuModelAdapter(
-        model)) if htorch.utils.internal.is_lazy() else HpuModelAdapter(model)
+def _maybe_wrap_in_hpu_graph(*args, **kwargs):
+    return htorch.hpu.wrap_in_hpu_graph(HpuModelAdapter(*args, **kwargs)) if htorch.utils.internal.is_lazy() else HpuModelAdapter(*args, **kwargs)
 
 
 class HabanaProfilerCounterHelper():
